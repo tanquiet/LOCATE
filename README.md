@@ -21,6 +21,8 @@ locate-app.zip                         the app packaged for a hosting site (two-
 DEMO.md                                one-page demo cheat sheet  <-- start here on demo day
 ```
 
+**Live on GitHub Pages:** <https://tanquiet.github.io/LOCATE/> (the app) and <https://tanquiet.github.io/LOCATE/tracker.html> (the tracker phone). Works on any phone, on mobile data, with no certificate warning. To switch it on: repository **Settings → Pages → Source: Deploy from a branch → `main` / `(root)` → Save**.
+
 **Running a demo? Open `DEMO.md`.** By default everything talks through the free HiveMQ public broker
 (no Mosquitto needed); the Mosquitto setup in section 3 is the optional private alternative.
 
