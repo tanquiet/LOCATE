@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0b14">
+  <title>Locate Phone Tracker</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .trk { max-width: 560px; margin: 0 auto; padding: 16px max(16px, env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); display: grid; gap: 14px; }
+    .trk h1 { margin: 0; font-size: 1.35rem; }
+    .trk .card { margin: 0; }
+    .big-state { display: flex; align-items: center; gap: 16px; }
+    .tx-lamp {
+      width: 84px; height: 84px; flex: none; border-radius: 50%;
+      display: grid; place-items: center; font-weight: 900;
+      background: var(--lamp-off); border: 4px solid var(--border); color: var(--muted);
+      transition: background .25s, box-shadow .25s;
+    }
+    .tx-lamp.on { background: #ff1f3d; border-color: #ffd0d8; color: #fff; box-shadow: 0 0 0 8px rgba(255,31,61,.3), 0 0 40px #ff1f3d; transition: none; }
+    .state-big { font-size: 1.3rem; font-weight: 800; line-height: 1.25; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; margin: 0; }
+    .grid2 dt { color: var(--muted); font-size: .85rem; }
+    .grid2 dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    .seg3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .seg3 .seg { min-height: 60px; }
+    .state-card[data-state="armed"] { border-color: var(--ok); box-shadow: inset 0 0 0 1px var(--ok); }
+    .state-card[data-state="stolen"] { border-color: var(--danger); background: var(--danger-bg); box-shadow: inset 0 0 0 2px var(--danger); }
+    .state-card[data-state="arming"] { border-color: var(--warn); }
+    details.card summary { cursor: pointer; font-weight: 700; }
+    .log { margin: 0; padding: 10px; max-height: 220px; overflow: auto; border-radius: 10px; background: var(--bg); border: 1px solid var(--border); font: 13px/1.45 ui-monospace, Consolas, monospace; white-space: pre-wrap; }
+    .warn { border: 2px solid var(--warn); border-radius: 12px; padding: 12px; }
+  </style>
+</head>
+<body>
+
+<!-- PAIRING: a tracker has no account. It is paired to one vehicle with the code
+     from the Locate app (Vehicles -> Pair tracker). Nothing runs until it is paired. -->
+<div id="login" class="login" role="dialog" aria-modal="true" aria-labelledby="pairTitle">
+  <form id="pairForm" class="login-card" autocomplete="off" novalidate>
+    <div class="login-brand"><span class="brand-mark" aria-hidden="true"></span>Locate tracker</div>
+    <h1 id="pairTitle">Pair this tracker</h1>
+    <details class="demo-accounts" open>
+      <summary>Quick pair: tap a demo vehicle</summary>
+      <div id="quickPair" class="demo-list"></div>
+    </details>
+    <p class="muted" style="margin:0">Your own vehicle? In the Locate app on the owner's phone open <strong>Vehicles → Pair tracker</strong>. Scan its QR code with this phone's camera, or type the code here.</p>
+    <label for="pairInput">Pairing code
+      <input id="pairInput" class="pair-input" type="text" maxlength="8" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="K7Q2M9">
+    </label>
+    <p id="pairError" class="feedback" data-kind="fail" role="alert"></p>
+    <button class="btn btn-primary" type="submit">Pair</button>
+  </form>
+</div>
+
+<div id="appRoot" inert>
+<header class="topbar">
+  <div class="brand"><span class="brand-mark" aria-hidden="true"></span>Tracker</div>
+  <div id="conn" class="conn" data-state="offline" role="status" aria-live="polite">
+    <span class="conn-dot" aria-hidden="true"></span><span id="connText">Not connected</span>
+  </div>
+  <button id="logoutBtn" class="btn user-chip" type="button" aria-label="Unpair this tracker"><span id="userChip">Not paired</span><span aria-hidden="true"> · Unpair</span></button>
+</header>
+
+<div class="trk">
+  <p class="muted" style="margin:0">This phone is the tracker in <strong id="vehName">the vehicle</strong>. The owner watches it in the Locate app.</p>
+  <div id="pairWarn" class="warn" hidden></div>
+
+  <div id="gpsWarn" class="warn" hidden></div>
+
+  <div id="stateCard" class="card state-card" data-state="A">
+    <div class="big-state">
+      <div id="txLamp" class="tx-lamp" aria-hidden="true">TX</div>
+      <div>
+        <div id="stateText" class="state-big">Starting…</div>
+        <div id="stateSub" class="muted"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Mode</h2>
+    <div class="segmented" role="group" aria-label="Tracker mode">
+      <button id="modeA" class="seg" type="button" aria-pressed="true"><strong>A · Always-on</strong><span>Sends every 1.5 s</span></button>
+      <button id="modeB" class="seg" type="button" aria-pressed="false"><strong>B · Locate (armed)</strong><span>Silent while parked, alerts the owner when it moves</span></button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Movement</h2>
+    <div class="seg3" role="group" aria-label="Movement">
+      <button id="srcMotion" class="seg" type="button" aria-pressed="true"><strong>Auto</strong><span>sensor + GPS</span></button>
+      <button id="srcMove" class="seg" type="button" aria-pressed="false"><strong>Moving</strong><span>indoor test</span></button>
+      <button id="srcStop" class="seg" type="button" aria-pressed="false"><strong>Stopped</strong><span>indoor test</span></button>
+    </div>
+    <button id="motionPerm" class="btn btn-primary" type="button" style="margin-top:12px" hidden>Allow motion sensor</button>
+    <dl class="grid2" style="margin-top:14px">
+      <div><dt>Now</dt><dd id="vSpeed">-</dd></div>
+      <div><dt>GPS accuracy</dt><dd id="vAcc">-</dd></div>
+      <div><dt>Position</dt><dd id="vPos">waiting for GPS</dd></div>
+      <div><dt>Sent so far</dt><dd id="vTx">0</dd></div>
+    </dl>
+  </div>
+
+  <details class="card">
+    <summary>Details and log</summary>
+    <dl class="grid2" style="margin-top:12px">
+      <div><dt>Topic</dt><dd id="vTopic">-</dd></div>
+      <div><dt>Keep screen on</dt><dd id="vWake">-</dd></div>
+    </dl>
+    <pre id="log" class="log" aria-live="off" style="margin-top:12px"></pre>
+    <p class="muted" style="margin:12px 0 0">Note: a phone's own mobile radio cannot be switched off from a web page. This page reproduces what the Locate tracker <em>sends</em>; the RF-detector part of the demo needs the ESP32.</p>
+  </details>
+
+  <a class="btn" href="./" style="text-align:center;text-decoration:none;display:flex;align-items:center;justify-content:center">Open the Locate app</a>
+</div>
+</div><!-- /appRoot -->
+
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js" defer></script>
+<script src="tracker.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0b14">
+  <title>Locate</title>
+  <meta name="description" content="Locate: hidden anti-theft vehicle tracker">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <!-- iPhone / iPad: home-screen icon and full-screen app look -->
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Locate">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- LOGIN: shown until someone signs in. Customer = vehicle owner, Control admin = full access. -->
+<div id="login" class="login" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+  <form id="loginForm" class="login-card" autocomplete="on" novalidate>
+    <div class="login-brand"><span class="brand-mark" aria-hidden="true"></span>Locate</div>
+    <h1 id="loginTitle">Sign in</h1>
+    <div class="segmented" role="group" aria-label="Who is signing in">
+      <button id="roleCustomer" class="seg" type="button" aria-pressed="true"><strong>Customer</strong><span>My vehicle</span></button>
+      <button id="roleAdmin" class="seg" type="button" aria-pressed="false"><strong>Control admin</strong><span>Control room</span></button>
+    </div>
+    <label id="signupNameRow" for="signupName" hidden>Your name
+      <input id="signupName" name="name" type="text" autocomplete="name" maxlength="40">
+    </label>
+    <label for="loginUser">Username
+      <input id="loginUser" name="username" type="text" autocapitalize="none" autocomplete="username" spellcheck="false" required>
+    </label>
+    <label for="loginPass">Password
+      <span class="pass-row">
+        <input id="loginPass" name="password" type="password" autocomplete="current-password" required>
+        <button id="loginShow" class="btn" type="button" aria-pressed="false" aria-label="Show password">Show</button>
+      </span>
+    </label>
+    <p id="loginError" class="feedback" data-kind="fail" role="alert"></p>
+    <button id="loginBtn" class="btn btn-primary" type="submit">Sign in</button>
+    <button id="signupToggle" class="link-btn" type="button">New here? Create a free account</button>
+    <p id="loginHint" class="muted login-hint">Customer: see and protect your vehicle. Control admin: full control room access.</p>
+    <details id="demoAccounts" class="demo-accounts" open>
+      <summary>Quick sign-in: tap an account</summary>
+      <div id="demoList" class="demo-list"></div>
+    </details>
+  </form>
+</div>
+
+<div class="app" id="appRoot" inert>
+
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true"></span>Locate</div>
+    <div id="conn" class="conn" data-state="connecting" role="status" aria-live="polite">
+      <span class="conn-dot" aria-hidden="true"></span>
+      <span id="connText">Connecting…</span>
+    </div>
+    <button id="logoutBtn" class="btn user-chip" type="button" aria-label="Sign out"><span id="userChip">Guest</span><span aria-hidden="true"> · Sign out</span></button>
+    <button id="themeBtn" class="icon-btn" type="button" aria-label="Switch between dark and light theme">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9c0-.5 0-.9-.1-1.4A7 7 0 0 1 12 3z"/></svg>
+    </button>
+  </header>
+
+  <div id="alertBanner" class="banner" role="alert" hidden>
+    <span class="banner-icon" aria-hidden="true">⚠</span>
+    <div class="banner-text">
+      <strong id="bannerTitle">THEFT ALERT - vehicle stopped</strong>
+      <span id="bannerDetail"></span>
+    </div>
+    <button id="bannerPolice" class="btn btn-light" type="button">🚓 Report to police</button>
+    <button id="bannerMute" class="btn btn-light" type="button" hidden>🔇 Silence alarm</button>
+    <button id="bannerShow" class="btn btn-light" type="button">Show on map</button>
+    <button id="bannerClose" class="icon-btn" type="button" aria-label="Dismiss alert banner">✕</button>
+  </div>
+
+  <nav class="tabs" aria-label="Screens">
+    <button class="tab active" data-tab="map" type="button" aria-current="page">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.800-7 11-7 11z"/><circle cx="12" cy="10" r="2.500"/></svg>
+      <span>Live map</span>
+    </button>
+    <button class="tab" data-tab="vehicles" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 16l1.500-5.500A2 2 0 0 1 8.400 9h7.200a2 2 0 0 1 1.900 1.500L19 16"/><path d="M3 16h18v3H3z"/><circle cx="7.500" cy="19" r="1.500"/><circle cx="16.500" cy="19" r="1.500"/></svg>
+      <span>Vehicles</span>
+    </button>
+    <button class="tab" data-tab="alerts" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 17V11a6 6 0 0 1 12 0v6l2 2H4z"/><path d="M10 21h4"/></svg>
+      <span>Alerts</span><span id="alertCount" class="tab-count" hidden></span>
+    </button>
+    <button class="tab admin-only" data-tab="compare" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 20V6M12 20v-9M18 20v-3"/></svg>
+      <span>Compare</span>
+    </button>
+    <button class="tab" data-tab="controls" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>
+      <span>Controls</span>
+    </button>
+    <button class="tab" data-tab="settings" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.600 5.600l2.100 2.100M16.300 16.300l2.100 2.100M5.600 18.400l2.100-2.100M16.300 7.700l2.100-2.100"/></svg>
+      <span>Settings</span>
+    </button>
+  </nav>
+
+  <main>
+
+    <!-- 1. LIVE MAP -->
+    <section id="screen-map" class="screen active" aria-label="Live map">
+      <div class="map-wrap">
+        <div id="map"></div>
+        <div id="mapEmpty" class="map-empty">
+          <strong>Waiting for the vehicle</strong>
+          <span>Its position appears here as soon as it reports in. No hardware? Turn on Demo mode in Settings.</span>
+        </div>
+      </div>
+      <aside class="card status-card" aria-live="polite">
+        <button id="vehChip" class="veh-chip" type="button" aria-label="Choose a vehicle">
+          <span id="vehChipIcon" class="veh-chip-icon" aria-hidden="true">🚗</span>
+          <span class="veh-chip-text"><strong id="vehChipName">Demo car</strong><small id="vehChipSub">Tap to switch vehicle</small></span>
+          <span aria-hidden="true">▾</span>
+        </button>
+        <div id="statusState" class="state" data-state="safe">
+          <span id="statusIcon" class="state-icon" aria-hidden="true">✓</span>
+          <div>
+            <div id="statusLabel" class="state-label">Safe</div>
+            <div id="statusSub" class="state-sub">No alerts</div>
+          </div>
+        </div>
+        <div class="guard-ctl">
+          <div id="mapModeSwitch" class="mode-switch" role="group" aria-label="Tracker mode">
+            <button id="mapModeA" class="mode-opt" type="button" aria-pressed="false">
+              <span class="mode-letter" aria-hidden="true">A</span>
+              <span><strong>Always-on</strong><small>Transmits every 1.5 s</small></span>
+            </button>
+            <button id="mapModeB" class="mode-opt" type="button" aria-pressed="false">
+              <span class="mode-letter" aria-hidden="true">B</span>
+              <span><strong>Locate · Armed</strong><small>Silent. Alerts you the moment it moves</small></span>
+            </button>
+          </div>
+          <div id="zoneRow" class="zone-row" hidden>
+            <span class="zone-label">Theft alert when it is more than</span>
+            <div class="zone-chips" role="group" aria-label="Safe zone size">
+              <button class="chip" data-zone="20" type="button" aria-pressed="false">20 m</button>
+              <button class="chip" data-zone="50" type="button" aria-pressed="true">50 m</button>
+              <button class="chip" data-zone="100" type="button" aria-pressed="false">100 m</button>
+            </div>
+            <span class="zone-label">away from you.</span>
+            <p id="zoneInfo" class="muted"></p>
+          </div>
+          <button id="guardBtn" class="btn btn-primary" type="button" hidden>🔒 Arm</button>
+          <p id="guardHint" class="muted">Pick a mode for the tracker.</p>
+          <p id="guardFeedback" class="feedback" role="status" aria-live="polite"></p>
+        </div>
+        <dl class="facts">
+          <div><dt>Last seen</dt><dd id="factSeen">Never</dd></div>
+          <div><dt>Speed</dt><dd id="factSpeed">-</dd></div>
+          <div><dt>Tracker mode</dt><dd id="factMode">Unknown</dd></div>
+          <div><dt>GPS accuracy</dt><dd id="factAcc">-</dd></div>
+          <div><dt>Distance moved</dt><dd id="factRoute">0 m</dd></div>
+          <div><dt>Sent over</dt><dd id="factLink">-</dd></div>
+        </dl>
+        <div class="card-actions">
+          <button id="recenterBtn" class="btn" type="button">Centre on vehicle</button>
+          <button id="clearRouteBtn" class="btn" type="button">Clear route</button>
+        </div>
+        <button id="notifyBtn" class="btn btn-primary" type="button" hidden>🔔 Turn on pop-up alerts</button>
+      </aside>
+    </section>
+
+    <!-- VEHICLES: add, pair, open, remove -->
+    <section id="screen-vehicles" class="screen" aria-label="Vehicles" hidden>
+      <h1 id="vehTitle">My vehicles</h1>
+      <p id="vehIntro" class="muted veh-intro">Each vehicle has its own tracker and its own private channel. Tap a vehicle to watch it.</p>
+      <ul id="vehList" class="veh-list"></ul>
+      <div id="vehEmpty" class="empty" hidden>
+        <strong>No vehicles yet</strong>
+        <span>Add your car, bike or scooter, then pair a tracker to it.</span>
+      </div>
+
+      <div id="pairCard" class="card pair-card" hidden>
+        <div class="modal-head">
+          <h2 id="pairTitle">Pair a tracker</h2>
+          <button id="pairClose" class="icon-btn" type="button" aria-label="Close">✕</button>
+        </div>
+        <p class="muted">On the phone or device that goes in the vehicle, scan this code with the camera, or open the link and enter the code.</p>
+        <div class="pair-body">
+          <div id="pairQr" class="pair-qr" aria-label="QR code with the pairing link"></div>
+          <div class="pair-code-box">
+            <span class="muted">Pairing code</span>
+            <strong id="pairCode" class="pair-code">------</strong>
+            <a id="pairLink" class="pair-link" href="#" target="_blank" rel="noopener"></a>
+          </div>
+        </div>
+        <div class="pair-actions">
+          <button id="pairCopy" class="btn" type="button">Copy link</button>
+          <button id="pairShare" class="btn btn-primary" type="button">Share link</button>
+        </div>
+        <p id="pairFeedback" class="feedback" role="status" aria-live="polite"></p>
+        <p class="muted pair-esp">ESP32 tracker: set <code>TOPIC_BASE</code> to <code id="pairTopic"></code> in the sketch.</p>
+      </div>
+
+      <form id="vehForm" class="card form veh-form" autocomplete="off">
+        <h2>Add a vehicle</h2>
+        <label for="vehName">Name
+          <input id="vehName" type="text" maxlength="30" placeholder="e.g. My Activa" required>
+        </label>
+        <div class="veh-types" role="radiogroup" aria-label="Vehicle type">
+          <button type="button" class="veh-type" data-vtype="car" aria-pressed="true"><span>🚗</span>Car</button>
+          <button type="button" class="veh-type" data-vtype="motorbike" aria-pressed="false"><span>🏍️</span>Motorbike</button>
+          <button type="button" class="veh-type" data-vtype="scooter" aria-pressed="false"><span>🛵</span>Scooter</button>
+          <button type="button" class="veh-type" data-vtype="bicycle" aria-pressed="false"><span>🚲</span>Bicycle</button>
+          <button type="button" class="veh-type" data-vtype="truck" aria-pressed="false"><span>🚚</span>Truck / van</button>
+          <button type="button" class="veh-type" data-vtype="other" aria-pressed="false"><span>📦</span>Other</button>
+        </div>
+        <label for="vehReg">Registration number <span class="muted">(optional)</span>
+          <input id="vehReg" type="text" maxlength="15" autocapitalize="characters" placeholder="e.g. KA 01 AB 1234">
+        </label>
+        <button class="btn btn-primary" type="submit">Add vehicle</button>
+        <p id="vehFeedback" class="feedback" role="status" aria-live="polite"></p>
+      </form>
+      <p class="muted note">Vehicle names are shared with the control room so it can help you. Without a server, vehicles sync between phones through the message broker; a launched product would keep them on a private server.</p>
+    </section>
+
+    <!-- 2. ALERTS -->
+    <section id="screen-alerts" class="screen" aria-label="Alerts" hidden>
+      <h1>Alerts</h1>
+      <div class="chips" role="group" aria-label="Filter alerts">
+        <button class="chip active" data-filter="all" type="button" aria-pressed="true">All</button>
+        <button class="chip" data-filter="open" type="button" aria-pressed="false">Open</button>
+        <button class="chip" data-filter="resolved" type="button" aria-pressed="false">Resolved</button>
+        <button class="chip" data-filter="theft_move" type="button" aria-pressed="false">Move alarms</button>
+        <button class="chip" data-filter="theft_stop" type="button" aria-pressed="false">Stop alerts</button>
+        <button class="chip" data-filter="stolen_report" type="button" aria-pressed="false">Stolen reports</button>
+      </div>
+      <ul id="alertList" class="alert-list"></ul>
+      <div id="alertsEmpty" class="empty">
+        <strong>No alerts yet</strong>
+        <span>When the vehicle is taken and then stops, Locate sends one alert with its location. It will show up here.</span>
+      </div>
+    </section>
+
+    <!-- 3. COMPARE -->
+    <section id="screen-compare" class="screen" aria-label="Compare" hidden>
+      <h1>Always-on tracker vs Locate</h1>
+
+      <div id="modeBadge" class="mode-badge" data-mode="unknown" aria-live="polite">
+        <span id="modeBadgeIcon" class="mode-badge-icon" aria-hidden="true">…</span>
+        <span id="modeBadgeText">Waiting for the vehicle</span>
+      </div>
+
+      <div class="counters">
+        <div class="card counter" data-series="a">
+          <div class="counter-title"><span class="swatch swatch-a" aria-hidden="true"></span>Always-on tracker</div>
+          <div id="countA" class="counter-num">0</div>
+          <div class="counter-sub">transmissions</div>
+        </div>
+        <div class="card counter" data-series="b">
+          <div class="counter-title"><span class="swatch swatch-b" aria-hidden="true"></span>Locate</div>
+          <div id="countB" class="counter-num">0</div>
+          <div class="counter-sub">transmissions</div>
+        </div>
+      </div>
+
+      <div id="trailInfo" class="card trail-info" hidden>
+        <h2><span class="trail-dash" aria-hidden="true"></span>Silent, but nothing is lost</h2>
+        <p id="trailInfoText"></p>
+        <p class="muted">While Locate is silent the tracker keeps recording its GPS position (receiving GPS transmits nothing). The route arrives inside the single stop alert. It is the dashed line on the Live map.</p>
+      </div>
+
+      <div class="card detector">
+        <h2>What a thief's RF detector sees</h2>
+        <div class="detector-body">
+          <div id="detLamp" class="lamp" aria-hidden="true"><span>RF</span></div>
+          <div>
+            <div id="detText" class="det-text">Quiet - nothing to detect</div>
+            <div id="detSub" class="det-sub">The lamp flashes every time the tracker transmits.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Tracker mode</h2>
+        <div class="segmented" role="group" aria-label="Tracker mode">
+          <button id="modeBtnA" class="seg" type="button" aria-pressed="false">
+            <strong>A · Always-on</strong><span>Transmits every 1.5 s</span>
+          </button>
+          <button id="modeBtnB" class="seg" type="button" aria-pressed="false">
+            <strong>B · Locate (armed)</strong><span>Silent while parked, alerts you when it moves</span>
+          </button>
+        </div>
+        <p id="modeFeedback" class="feedback" role="status" aria-live="polite"></p>
+      </div>
+
+      <div class="card">
+        <h2>Transmissions in the last minute</h2>
+        <div class="chart-box"><canvas id="tpmChart" role="img" aria-label="Bar chart: transmissions in the last minute for each mode"></canvas></div>
+        <p id="tpmText" class="chart-text">Always-on tracker: 0 · Locate: 0</p>
+        <p id="deviceTx" class="muted"></p>
+        <button id="resetBtn" class="btn" type="button">Reset counters</button>
+      </div>
+    </section>
+
+    <!-- 4. CONTROLS -->
+    <section id="screen-controls" class="screen" aria-label="Controls" hidden>
+      <h1>Controls</h1>
+
+      <div class="card">
+        <h2>Tracker mode</h2>
+        <p id="armState" class="muted">Armed: the alarm sounds on this computer the moment the tracker moves, then it is followed live. Disarmed: it works the Locate way - silent while moving, one alert after it stops.</p>
+        <div class="segmented" role="group" aria-label="Arm or disarm">
+          <button id="armBtn" class="seg" type="button" aria-pressed="false"><strong>🔒 Arm</strong><span>Instant alarm (Guard)</span></button>
+          <button id="disarmBtn" class="seg" type="button" aria-pressed="false"><strong>🔓 Disarm</strong><span>Locate mode</span></button>
+        </div>
+        <p id="armFeedback" class="feedback" role="status" aria-live="polite"></p>
+      </div>
+
+      <div class="card row">
+        <div>
+          <h2>Buzzer</h2>
+          <p class="muted">Sound the buzzer on the vehicle.</p>
+        </div>
+        <button id="buzzerSwitch" class="switch" type="button" role="switch" aria-checked="false" aria-label="Buzzer">
+          <span class="switch-knob" aria-hidden="true"></span><span id="buzzerLabel" class="switch-label">Off</span>
+        </button>
+      </div>
+      <p id="buzzerFeedback" class="feedback" role="status" aria-live="polite"></p>
+
+      <div class="card">
+        <h2>Report stolen</h2>
+        <p id="stolenInfo" class="muted">Switches the tracker to Locate and makes it send its location the next time the vehicle stops, even if the owner's phone is nearby.</p>
+        <button id="stolenBtn" class="btn btn-danger" type="button">⚑ Report vehicle stolen</button>
+        <div id="stolenConfirm" class="confirm" hidden>
+          <strong>Report this vehicle as stolen?</strong>
+          <div class="confirm-actions">
+            <button id="stolenYes" class="btn btn-danger" type="button">Yes, report stolen</button>
+            <button id="stolenNo" class="btn" type="button">Cancel</button>
+          </div>
+        </div>
+        <button id="stolenClear" class="btn" type="button" hidden>✓ Vehicle recovered - cancel report</button>
+        <p id="stolenFeedback" class="feedback" role="status" aria-live="polite"></p>
+      </div>
+
+      <p class="muted note">In Locate mode the vehicle only listens for about a second after it sends an alert, so commands reach it at its next stop.</p>
+    </section>
+
+    <!-- 5. SETTINGS -->
+    <section id="screen-settings" class="screen" aria-label="Settings" hidden>
+      <h1>Settings</h1>
+
+      <div class="card">
+        <h2>Account</h2>
+        <p id="accountText" class="muted">Not signed in.</p>
+        <button id="logoutBtn2" class="btn" type="button">Sign out</button>
+        <form id="pwForm" class="form admin-only" autocomplete="off" style="margin-top:16px">
+          <h2>Change a password</h2>
+          <label for="pwRole">Account
+            <select id="pwRole"></select>
+          </label>
+          <label for="pwNew">New password (6 characters or more)
+            <input id="pwNew" type="password" autocomplete="new-password" minlength="6" required>
+          </label>
+          <div class="form-actions">
+            <button class="btn btn-primary" type="submit">Save password</button>
+            <button id="pwReset" class="btn" type="button">Reset all to demo passwords</button>
+          </div>
+          <p id="pwFeedback" class="feedback" role="status" aria-live="polite"></p>
+        </form>
+      </div>
+
+      <div class="card admin-only">
+        <h2>Reset for a fresh demo</h2>
+        <p class="muted">Clears alerts, counters and the route from this screen so the next demo starts clean. Settings and accounts are kept.</p>
+        <button id="demoResetBtn" class="btn btn-primary" type="button">↺ Reset for a fresh demo</button>
+        <div id="demoResetConfirm" class="confirm" hidden>
+          <strong>Clear all alerts, counters and the route on this device?</strong>
+          <div class="confirm-actions">
+            <button id="demoResetYes" class="btn btn-danger" type="button">Yes, reset</button>
+            <button id="demoResetNo" class="btn" type="button">Cancel</button>
+          </div>
+        </div>
+        <p id="demoResetFeedback" class="feedback" role="status" aria-live="polite"></p>
+      </div>
+
+      <div class="card row admin-only">
+        <div>
+          <h2>Demo mode</h2>
+          <p class="muted">Simulated car driving around Bengaluru. No hardware needed.</p>
+        </div>
+        <button id="demoSwitch" class="switch" type="button" role="switch" aria-checked="false" aria-label="Demo mode">
+          <span class="switch-knob" aria-hidden="true"></span><span id="demoLabel" class="switch-label">Off</span>
+        </button>
+      </div>
+
+      <div class="card row">
+        <div>
+          <h2>Pop-up alerts</h2>
+          <p id="notifyText" class="muted">Show a pop-up on this computer when a theft alert arrives, even if this window is hidden.</p>
+        </div>
+        <button id="notifySwitch" class="switch" type="button" role="switch" aria-checked="false" aria-label="Pop-up alerts">
+          <span class="switch-knob" aria-hidden="true"></span><span id="notifyLabel" class="switch-label">Off</span>
+        </button>
+      </div>
+      <p id="notifyFeedback" class="feedback" role="status" aria-live="polite"></p>
+
+      <div class="card admin-only">
+        <h2>Use a phone as the tracker</h2>
+        <p class="muted">No ESP32 yet? Open this on a second phone. It sends its real GPS location exactly like the car tracker would.</p>
+        <a class="btn" href="tracker.html" style="display:inline-flex;align-items:center;text-decoration:none">Open phone tracker</a>
+      </div>
+
+      <div class="card">
+        <h2>Install on this phone</h2>
+        <p id="installText" class="muted">Add Locate to your home screen. It opens full-screen like a normal app.</p>
+        <button id="installBtn" class="btn btn-primary" type="button" hidden>Install app</button>
+        <p id="installFeedback" class="feedback" role="status" aria-live="polite"></p>
+      </div>
+
+      <div class="card row">
+        <div>
+          <h2>Keep screen on</h2>
+          <p class="muted">Stops the phone going to sleep during the demo.</p>
+        </div>
+        <button id="wakeSwitch" class="switch" type="button" role="switch" aria-checked="false" aria-label="Keep screen on">
+          <span class="switch-knob" aria-hidden="true"></span><span id="wakeLabel" class="switch-label">Off</span>
+        </button>
+      </div>
+      <p id="wakeFeedback" class="feedback" role="status" aria-live="polite"></p>
+
+      <form id="settingsForm" class="card form admin-only" autocomplete="off">
+        <h2>MQTT broker</h2>
+        <label>Broker URL or address
+          <input id="setBroker" type="text" inputmode="url" placeholder="192.168.1.10 or ws://broker.hivemq.com/mqtt" required>
+        </label>
+        <label>WebSocket port
+          <input id="setPort" type="number" inputmode="numeric" min="1" max="65535" placeholder="9001">
+        </label>
+        <label>Username
+          <input id="setUser" type="text" autocapitalize="none" placeholder="blank for public test brokers">
+        </label>
+        <label>Password
+          <input id="setPass" type="password" placeholder="blank for public test brokers">
+        </label>
+        <label>Topic prefix
+          <input id="setPrefix" type="text" autocapitalize="none" required>
+        </label>
+        <label>Vehicle ID
+          <input id="setVehicle" type="text" autocapitalize="none" required>
+        </label>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit">Save and connect</button>
+          <button id="testBtn" class="btn" type="button">Test connection</button>
+        </div>
+        <p id="settingsFeedback" class="feedback" role="status" aria-live="polite"></p>
+      </form>
+
+      <div class="card admin-only">
+        <h2>History</h2>
+        <p class="muted">Alerts and counters are stored in this browser only.</p>
+        <button id="clearBtn" class="btn" type="button">Clear alert history</button>
+        <div id="clearConfirm" class="confirm" hidden>
+          <strong>Delete all saved alerts?</strong>
+          <div class="confirm-actions">
+            <button id="clearYes" class="btn btn-danger" type="button">Yes, delete</button>
+            <button id="clearNo" class="btn" type="button">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- POLICE REPORT: prepares a report to hand to the police. Nothing is sent automatically. -->
+<div id="policeDialog" class="modal" role="dialog" aria-modal="true" aria-labelledby="policeTitle" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <h1 id="policeTitle">🚓 Report to police</h1>
+      <button id="policeClose" class="icon-btn" type="button" aria-label="Close police report">✕</button>
+    </div>
+    <p class="police-note"><strong>This prepares the report. It is not sent automatically.</strong> Email it, or call and read out the location.</p>
+
+    <div class="police-actions">
+      <a id="policeCall" class="btn btn-danger" href="tel:112">📞 Call 112</a>
+      <button id="policeEmail" class="btn btn-primary" type="button">✉ Email report</button>
+      <button id="policeCopy" class="btn" type="button">Copy report</button>
+      <button id="policeDownload" class="btn" type="button">Download</button>
+    </div>
+    <p id="policeFeedback" class="feedback" role="status" aria-live="polite"></p>
+
+    <div class="form police-form">
+      <label for="pReg">Vehicle registration number
+        <input id="pReg" type="text" autocapitalize="characters" placeholder="e.g. KA 01 AB 1234">
+      </label>
+      <label for="pDesc">Vehicle description
+        <input id="pDesc" type="text" placeholder="e.g. white Maruti Swift, 2021">
+      </label>
+      <label for="pPhone">Your phone number
+        <input id="pPhone" type="tel" inputmode="tel" placeholder="for the police to call you back">
+      </label>
+      <label for="pEmail">Police station email (optional)
+        <input id="pEmail" type="email" inputmode="email" placeholder="leave empty to choose in your email app">
+      </label>
+    </div>
+
+    <h2>Report (location updates live)</h2>
+    <pre id="policePreview" class="police-preview" tabindex="0"></pre>
+
+    <div class="police-actions">
+      <button id="policeMark" class="btn btn-primary" type="button">✓ I have reported it - mark as reported</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
+<script src="auth.js" defer></script>
+<script src="app.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+# Secrets: never publish these
+certs/
+firmware/locate_node/wifi_secrets.h
+broker/passwd
+
+# Local clutter
+__pycache__/
+*.pyc
+.vscode/
+.claude/
+Thumbs.db
+.DS_Store
